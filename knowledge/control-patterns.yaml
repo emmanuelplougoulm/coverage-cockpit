@@ -1,0 +1,31 @@
+# Motifs de contrôle (§14) : ce que les tests vérifient, par brique, indépendamment
+# de la méthode de page objet. On compare la forme des contrôles, pas les valeurs.
+# couche : MO (middle office) | Client | Document | API | E-mail | Test
+patterns:
+  decision:
+    steps: []
+    modes: [api, back-office]
+    intentions:
+      - { id: decision-recorded, label: Décision enregistrée, checks: [checkDecision], layer: MO, core: true }
+  signature:
+    steps: ['^SIGNATURE_STEPS\.']
+    modes: [en ligne, guichet]
+    intentions:
+      - { id: signed-document, label: Document signé conforme, checks: [checkSignedDocument], layer: Document, core: true }
+  identite:
+    steps: ['^SCAN_ID_STEPS\.']
+    modes: [en ligne]
+    intentions:
+      - { id: identity-status, label: Statut d'identité du dossier, checks: [checkCaseStatus], layer: API, core: true }
+  relances:
+    steps: []
+    modes: [minuterie]
+    intentions:
+      - { id: email-content, label: Contenu de l'e-mail, checks: [checkEmailContent, validateEmailUI], layer: E-mail, core: false }
+  transverse:
+    steps: []
+    modes: []
+    intentions:
+      # Une capture d'e-mail vérifie rendu ET texte (§5.3) : elle réalise aussi l'intention.
+      - { id: email-content, label: Contenu de l'e-mail, checks: [checkEmailContent, validateEmailUI], layer: E-mail, core: false }
+      - { id: case-status, label: Statut du dossier, checks: [checkCaseStatus], layer: API, core: true }

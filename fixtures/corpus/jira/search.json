@@ -1,0 +1,85 @@
+{
+  "startAt": 0,
+  "maxResults": 100,
+  "total": 7,
+  "issues": [
+    {
+      "key": "PILOT-150",
+      "fields": {
+        "summary": "[Ouverture] Contrôle de vivacité avant la capture de la pièce",
+        "description": "h3. Contexte\nAjouter un *contrôle de vivacité* dans la session d'identité du BPMN pilot-account-opening.\n\nVoir [la maquette|https://design.example.invalid/liveness].",
+        "status": { "name": "En cours", "statusCategory": { "key": "indeterminate" } },
+        "issuetype": { "name": "Story" },
+        "customfield_10100": "pilot-account-opening",
+        "customfield_10101": { "value": "Ouverture de compte" },
+        "customfield_10008": "PILOT-500",
+        "customfield_10007": ["com.atlassian.greenhopper.service.sprint.Sprint@6f1a2b[id=48,rapidViewId=3,state=ACTIVE,name=Sprint 48,startDate=2026-11-17T09:00:00.000+01:00]"]
+      }
+    },
+    {
+      "key": "PILOT-140",
+      "fields": {
+        "summary": "Objet de l'e-mail de bienvenue en anglais",
+        "description": "Le gabarit welcome du processus pilot-account-opening change d'objet en anglais.",
+        "status": { "name": "En revue", "statusCategory": { "key": "indeterminate" } },
+        "issuetype": { "name": "Story" },
+        "customfield_10008": "PILOT-500",
+        "customfield_10007": ["com.atlassian.greenhopper.service.sprint.Sprint@6f1a2b[id=48,rapidViewId=3,state=ACTIVE,name=Sprint 48]"]
+      }
+    },
+    {
+      "key": "PILOT-161",
+      "fields": {
+        "summary": "Le test du chemin nominal casse sur l'écran de signature",
+        "description": "Cas concernés : PILOT-TC-12 et PILOT-TC-31.",
+        "status": { "name": "À faire", "statusCategory": { "key": "new" } },
+        "issuetype": { "name": "Bug" },
+        "customfield_10007": ["com.atlassian.greenhopper.service.sprint.Sprint@6f1a2b[id=48,rapidViewId=3,state=ACTIVE,name=Sprint 48]"]
+      }
+    },
+    {
+      "key": "LOAN-77",
+      "fields": {
+        "summary": "[Prêt] Simulation de mensualités",
+        "description": "Nouveau parcours de prêt (processus loan-simulation).",
+        "status": { "name": "À faire", "statusCategory": { "key": "new" } },
+        "issuetype": { "name": "Story" },
+        "customfield_10100": "loan-simulation",
+        "customfield_10007": ["com.atlassian.greenhopper.service.sprint.Sprint@7c[id=49,rapidViewId=3,state=FUTURE,name=Sprint 49]"]
+      }
+    },
+    {
+      "key": "PILOT-170",
+      "fields": {
+        "summary": "Relances de pièces : cadence à revoir",
+        "description": "Indices divergents : le champ BPMN dit le prêt, la description parle de pilot-account-opening.",
+        "status": { "name": "À faire", "statusCategory": { "key": "new" } },
+        "issuetype": { "name": "Tâche" },
+        "customfield_10100": "loan-simulation",
+        "customfield_10101": { "value": "Ouverture de compte" },
+        "customfield_10007": ["com.atlassian.greenhopper.service.sprint.Sprint@7c[id=49,rapidViewId=3,state=FUTURE,name=Sprint 49]"]
+      }
+    },
+    {
+      "key": "SDK-31",
+      "fields": {
+        "summary": "SDK : nouvelle classe journey-error sur la page d'erreur",
+        "description": "Changement du SDK UI commun, tous parcours.",
+        "status": { "name": "À faire", "statusCategory": { "key": "new" } },
+        "issuetype": { "name": "Story" },
+        "customfield_10007": []
+      }
+    },
+    {
+      "key": "PILOT-501",
+      "fields": {
+        "summary": "Campagne de tests — Ouverture de compte",
+        "description": "Ticket de campagne du parcours.",
+        "status": { "name": "En cours", "statusCategory": { "key": "indeterminate" } },
+        "issuetype": { "name": "Tâche" },
+        "customfield_10008": "PILOT-500",
+        "customfield_10007": [{ "id": 48, "name": "Sprint 48", "state": "active" }]
+      }
+    }
+  ]
+}

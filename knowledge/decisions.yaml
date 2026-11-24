@@ -1,0 +1,45 @@
+# Catalogue de décisions de périmètre réutilisables d'un parcours à l'autre (§14).
+# Appliqué aux configs `catalog: true` là où elles ne disent rien. Un lien qui ne
+# se résout pas sur EXACTEMENT un élément du parcours reste « à trancher ».
+# N'est écrit qu'après un feu vert (`pnpm catalog:learn --write`).
+#
+# Genres : branch | excludeState | excludeTemplate | excludeBpmnStep | technicalStep
+# Champs : id, why, journeys (où la décision a été validée), exceptions (parcours qui ont décidé autrement)
+
+- id: fraud-check-silent
+  kind: branch
+  event: '^Fraud'
+  links: none
+  why: Le contrôle anti-fraude est silencieux pour le client ; rien de visible ne prouve la branche.
+  journeys: [pilot-account-opening]
+
+- id: rejection-email
+  kind: branch
+  event: 'Rejected|Refus'
+  subprocess: review
+  links: 'email:rejected$'
+  why: Un refus ne se voit que par l'e-mail de refus.
+  journeys: [pilot-account-opening]
+
+- id: approved-continues
+  kind: branch
+  event: '^Approved|Approuvé'
+  links: 'step:^SIGNATURE_STEPS\.'
+  why: Une approbation se prouve par l'arrivée sur la signature ; reste à dire quel écran exactement.
+
+- id: maintenance-screen
+  kind: excludeState
+  pattern: '\.maintenance$'
+  why: Écran affiché par l'infrastructure, jamais par le parcours.
+  journeys: [pilot-account-opening]
+
+- id: newsletter-templates
+  kind: excludeTemplate
+  pattern: newsletter
+  why: Gabarits marketing hors parcours.
+
+- id: archive
+  kind: technicalStep
+  pattern: '^archive'
+  why: Archivage sans écran ni e-mail.
+  journeys: [pilot-account-opening]

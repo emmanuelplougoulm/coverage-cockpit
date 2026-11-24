@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Processus pilote fictif (dialecte Zeebe / Camunda 8). Pièges volontaires :
+  - scan-id : sessionName calculé par concaténation FEEL (évaluable) ;
+  - documents : sessionName variable (non évaluable → bpmnSessions dans la config) ;
+  - documents : relance par minuterie (trigger timer) via un worker e-mail « v4 » ;
+  - review : décision back-office puis passerelle à quatre branches, dont une sans trace visible ;
+  - welcome : objet par langue + règle de dossier sur la gamme de carte ;
+  - application-rejected : objet conditionnel (deux variantes d'objet en français) ;
+  - advisor-notification : langue fixe.
+-->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
+                  id="Definitions_pilot" targetNamespace="http://bpmn.io/schema/bpmn">
+
+  <bpmn:message id="Message_Submitted" name="session-submitted" />
+  <bpmn:message id="Message_Processed" name="session-processed" />
+  <bpmn:message id="Message_Signed" name="session-signed" />
+  <bpmn:message id="Message_Blocked" name="session-blocked" />
+  <bpmn:message id="Message_Canceled" name="session-canceled" />
+  <bpmn:message id="Message_Decision" name="back-office-decision" />
+  <bpmn:error id="Error_Canceled" name="Canceled" errorCode="CANCELED" />
+  <bpmn:error id="Error_Provider" name="Provider down" errorCode="PROVIDER_DOWN" />
+  <bpmn:escalation id="Esc_IdBlocked" name="Identity blocked" escalationCode="ID_BLOCKED" />
+  <bpmn:escalation id="Esc_OtpLocked" name="OTP locked" escalationCode="OTP_LOCKED" />
+
+  <bpmn:process id="pilot-account-opening" name="Account opening (pilot)" isExecutable="true">
+    <bpmn:startEvent id="Start" />
+    <bpmn:sequenceFlow id="f_start" sourceRef="Start" targetRef="init-case" />
+
+    <!-- Sous-processus technique : aucun écran. -->
+    <bpmn:subProcess id="init-case" name="Init case">
+      <bpmn:startEvent id="init_start" />
+      <bpmn:sequenceFlow id="init_f1" sourceRef="init_start" targetRef="init_task" />
+      <bpmn:serviceTask id="init_task" name="Create case">
+        <bpmn:extensionElements><zeebe:taskDefinition type="init-case" /></bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="init_f2" sourceRef="init_task" targetRef="init_end" />
+      <bpmn:endEvent id="init_end" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="f_init" sourceRef="init-case" targetRef="onboarding" />
+
+    <bpmn:subProcess id="onboarding" name="Onboarding">
+      <bpmn:startEvent id="onb_start" />
+      <bpmn:sequenceFlow id="onb_f1" sourceRef="onb_start" targetRef="onb_session" />
+      <bpmn:serviceTask id="onb_session" name="Onboarding session">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="client-session" />
+          <zeebe:ioMapping><zeebe:input source="=&quot;ONBOARDING_STEPS&quot;" target="sessionName" /></zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="onb_f2" sourceRef="onb_session" targetRef="onb_gw" />
+      <bpmn:eventBasedGateway id="onb_gw" />
+      <bpmn:sequenceFlow id="onb_f3" sourceRef="onb_gw" targetRef="onb_submitted" />
+      <bpmn:sequenceFlow id="onb_f4" sourceRef="onb_gw" targetRef="onb_canceled" />
+      <bpmn:intermediateCatchEvent id="onb_submitted" name="Submitted">
+        <bpmn:messageEventDefinition messageRef="Message_Submitted" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="onb_canceled" name="Canceled">
+        <bpmn:messageEventDefinition messageRef="Message_Canceled" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sequenceFlow id="onb_f5" sourceRef="onb_submitted" targetRef="onb_end" />
+      <bpmn:sequenceFlow id="onb_f6" sourceRef="onb_canceled" targetRef="onb_end_canceled" />
+      <bpmn:endEvent id="onb_end" />
+      <bpmn:endEvent id="onb_end_canceled" name="Canceled by applicant">
+        <bpmn:errorEventDefinition errorRef="Error_Canceled" />
+      </bpmn:endEvent>
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="f_onb" sourceRef="onboarding" targetRef="applicant" />
+
+    <bpmn:subProcess id="applicant" name="Applicant data">
+      <bpmn:startEvent id="app_start" />
+      <bpmn:sequenceFlow id="app_f1" sourceRef="app_start" targetRef="app_session" />
+      <bpmn:serviceTask id="app_session" name="Applicant session">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="client-session" />
+          <zeebe:ioMapping><zeebe:input source="=&quot;APPLICANT_STEPS&quot;" target="sessionName" /></zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="app_f2" sourceRef="app_session" targetRef="app_submitted" />
+      <bpmn:intermediateCatchEvent id="app_submitted" name="Submitted">
+        <bpmn:messageEventDefinition messageRef="Message_Submitted" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sequenceFlow id="app_f3" sourceRef="app_submitted" targetRef="app_end" />
+      <bpmn:endEvent id="app_end" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="f_app" sourceRef="applicant" targetRef="email_welcome" />
+
+    <!-- E-mail v3 : modèle et objets en entrées, dossier choisi par la gamme de carte. -->
+    <bpmn:serviceTask id="email_welcome" name="Send welcome email">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="send-email" />
+        <zeebe:ioMapping>
+          <zeebe:input source="=&quot;welcome&quot;" target="template" />
+          <zeebe:input source="=&quot;Bienvenue chez nous&quot;" target="subject_fr" />
+          <zeebe:input source="=&quot;Welcome aboard&quot;" target="subject_en" />
+          <zeebe:input source="=if cardRange = &quot;premium&quot; then &quot;premium&quot; else null" target="folder" />
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="f_welcome" sourceRef="email_welcome" targetRef="scan-id" />
+
+    <bpmn:subProcess id="scan-id" name="Identity check">
+      <bpmn:startEvent id="scan_start" />
+      <bpmn:sequenceFlow id="scan_f1" sourceRef="scan_start" targetRef="scan_session" />
+      <bpmn:serviceTask id="scan_session" name="Identity session">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="client-session-v2" />
+          <!-- Concaténation : l'évaluateur FEEL sait la résoudre. -->
+          <zeebe:ioMapping><zeebe:input source="=&quot;SCAN_&quot; + &quot;ID_STEPS&quot;" target="sessionName" /></zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="scan_f2" sourceRef="scan_session" targetRef="scan_gw" />
+      <bpmn:eventBasedGateway id="scan_gw" />
+      <bpmn:sequenceFlow id="scan_f3" sourceRef="scan_gw" targetRef="scan_processed" />
+      <bpmn:sequenceFlow id="scan_f4" sourceRef="scan_gw" targetRef="scan_blocked" />
+      <bpmn:intermediateCatchEvent id="scan_processed" name="Processed">
+        <bpmn:messageEventDefinition messageRef="Message_Processed" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="scan_blocked" name="Blocked">
+        <bpmn:messageEventDefinition messageRef="Message_Blocked" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sequenceFlow id="scan_f5" sourceRef="scan_processed" targetRef="scan_end" />
+      <bpmn:sequenceFlow id="scan_f6" sourceRef="scan_blocked" targetRef="scan_end_blocked" />
+      <bpmn:endEvent id="scan_end" />
+      <bpmn:endEvent id="scan_end_blocked" name="Identity blocked">
+        <bpmn:escalationEventDefinition escalationRef="Esc_IdBlocked" />
+      </bpmn:endEvent>
+    </bpmn:subProcess>
+    <!-- Erreur du prestataire d'identité interceptée sur le sous-processus. -->
+    <bpmn:boundaryEvent id="scan_provider_down" name="Provider down" attachedToRef="scan-id">
+      <bpmn:errorEventDefinition errorRef="Error_Provider" />
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="f_scan_err" sourceRef="scan_provider_down" targetRef="End_technical" />
+    <bpmn:endEvent id="End_technical" name="Technical failure" />
+    <bpmn:sequenceFlow id="f_scan" sourceRef="scan-id" targetRef="documents" />
+
+    <bpmn:subProcess id="documents" name="Supporting documents">
+      <bpmn:startEvent id="doc_start" />
+      <bpmn:sequenceFlow id="doc_f1" sourceRef="doc_start" targetRef="doc_session" />
+      <bpmn:serviceTask id="doc_session" name="Documents session">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="client-session" />
+          <!-- Nom variable : le moteur ne le devine pas (config : bpmnSessions). -->
+          <zeebe:ioMapping><zeebe:input source="=sessionPrefix + &quot;_STEPS&quot;" target="sessionName" /></zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:boundaryEvent id="doc_reminder_timer" name="Every 3 days" cancelActivity="false" attachedToRef="doc_session">
+        <bpmn:timerEventDefinition><bpmn:timeCycle>R3/P3D</bpmn:timeCycle></bpmn:timerEventDefinition>
+      </bpmn:boundaryEvent>
+      <bpmn:sequenceFlow id="doc_f_timer" sourceRef="doc_reminder_timer" targetRef="email_documents_reminder" />
+      <!-- E-mail v4 : modèle dans le payload, objets dans un contexte FEEL par langue. -->
+      <bpmn:serviceTask id="email_documents_reminder" name="Send documents reminder">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="send-email-v4" />
+          <zeebe:ioMapping>
+            <zeebe:input source="={template: &quot;documents-reminder&quot;, data: {count: documentsCount}}" target="payload" />
+            <zeebe:input source="={fr: &quot;Il manque des pièces&quot;, en: &quot;Documents are missing&quot;}" target="subject" />
+          </zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="doc_f_rem_end" sourceRef="email_documents_reminder" targetRef="doc_reminder_end" />
+      <bpmn:endEvent id="doc_reminder_end" />
+      <bpmn:sequenceFlow id="doc_f2" sourceRef="doc_session" targetRef="doc_submitted" />
+      <bpmn:intermediateCatchEvent id="doc_submitted" name="Submitted">
+        <bpmn:messageEventDefinition messageRef="Message_Submitted" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sequenceFlow id="doc_f3" sourceRef="doc_submitted" targetRef="doc_end" />
+      <bpmn:endEvent id="doc_end" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="f_doc" sourceRef="documents" targetRef="review" />
+
+    <!-- Revue back-office : pas d'écran, une décision puis quatre branches. -->
+    <bpmn:subProcess id="review" name="Back-office review">
+      <bpmn:startEvent id="rev_start" />
+      <bpmn:sequenceFlow id="rev_f1" sourceRef="rev_start" targetRef="rev_decision" />
+      <bpmn:intermediateCatchEvent id="rev_decision" name="Decision received">
+        <bpmn:messageEventDefinition messageRef="Message_Decision" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sequenceFlow id="rev_f2" sourceRef="rev_decision" targetRef="rev_gw" />
+      <bpmn:exclusiveGateway id="rev_gw" name="Decision?" default="approved" />
+      <bpmn:sequenceFlow id="approved" name="Approved" sourceRef="rev_gw" targetRef="rev_end" />
+      <bpmn:sequenceFlow id="rejected" name="Rejected" sourceRef="rev_gw" targetRef="email_rejected">
+        <bpmn:conditionExpression>=decision = "REJECTED"</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="more-documents" name="More documents" sourceRef="rev_gw" targetRef="email_advisor">
+        <bpmn:conditionExpression>=decision = "MORE_DOCUMENTS"</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="fraud-check" name="Fraud suspicion" sourceRef="rev_gw" targetRef="rev_fraud">
+        <bpmn:conditionExpression>=fraudScore &gt; 80</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:serviceTask id="email_rejected" name="Send rejection email">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="send-email" />
+          <zeebe:ioMapping>
+            <zeebe:input source="=&quot;application-rejected&quot;" target="template" />
+            <!-- Deux objets possibles selon le code de refus. -->
+            <zeebe:input source="=if rejectionCode = &quot;REJ01&quot; then &quot;Votre demande n’a pas abouti…&quot; else &quot;Votre demande est refusée&quot;" target="subject_fr" />
+            <zeebe:input source="=&quot;Your application was declined&quot;" target="subject_en" />
+          </zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="rev_f_rej" sourceRef="email_rejected" targetRef="rev_end_rejected" />
+      <bpmn:endEvent id="rev_end_rejected" name="Rejected" />
+      <bpmn:serviceTask id="email_advisor" name="Notify advisor">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="send-email" />
+          <zeebe:ioMapping>
+            <zeebe:input source="=&quot;advisor-notification&quot;" target="template" />
+            <zeebe:input source="=&quot;Pièces complémentaires demandées&quot;" target="subject_fr" />
+            <!-- Destinataire interne : toujours en français. -->
+            <zeebe:input source="=&quot;fr&quot;" target="locale" />
+          </zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="rev_f_adv" sourceRef="email_advisor" targetRef="rev_end" />
+      <bpmn:serviceTask id="rev_fraud" name="Fraud check">
+        <bpmn:extensionElements><zeebe:taskDefinition type="fraud-check" /></bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="rev_f_fraud" sourceRef="rev_fraud" targetRef="rev_end" />
+      <bpmn:endEvent id="rev_end" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="f_rev" sourceRef="review" targetRef="signature" />
+
+    <bpmn:subProcess id="signature" name="Electronic signature">
+      <bpmn:startEvent id="sig_start" />
+      <bpmn:sequenceFlow id="sig_f1" sourceRef="sig_start" targetRef="sig_session" />
+      <bpmn:serviceTask id="sig_session" name="Signature session">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="client-session" />
+          <zeebe:ioMapping><zeebe:input source="=&quot;SIGNATURE_STEPS&quot;" target="sessionName" /></zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="sig_f2" sourceRef="sig_session" targetRef="sig_gw" />
+      <bpmn:eventBasedGateway id="sig_gw" />
+      <bpmn:sequenceFlow id="sig_f3" sourceRef="sig_gw" targetRef="sig_signed" />
+      <bpmn:sequenceFlow id="sig_f4" sourceRef="sig_gw" targetRef="sig_blocked" />
+      <bpmn:intermediateCatchEvent id="sig_signed" name="Signed">
+        <bpmn:messageEventDefinition messageRef="Message_Signed" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="sig_blocked" name="Locked">
+        <bpmn:messageEventDefinition messageRef="Message_Blocked" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sequenceFlow id="sig_f5" sourceRef="sig_signed" targetRef="sig_end" />
+      <bpmn:sequenceFlow id="sig_f6" sourceRef="sig_blocked" targetRef="sig_end_locked" />
+      <bpmn:endEvent id="sig_end" />
+      <bpmn:endEvent id="sig_end_locked" name="OTP locked">
+        <bpmn:escalationEventDefinition escalationRef="Esc_OtpLocked" />
+      </bpmn:endEvent>
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="f_sig" sourceRef="signature" targetRef="closing" />
+
+    <bpmn:subProcess id="closing" name="Closing">
+      <bpmn:startEvent id="clo_start" />
+      <bpmn:sequenceFlow id="clo_f1" sourceRef="clo_start" targetRef="clo_session" />
+      <bpmn:serviceTask id="clo_session" name="Closing session">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="client-session" />
+          <zeebe:ioMapping><zeebe:input source="=&quot;CLOSING_STEPS&quot;" target="sessionName" /></zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="clo_f2" sourceRef="clo_session" targetRef="clo_processed" />
+      <bpmn:intermediateCatchEvent id="clo_processed" name="Processed">
+        <bpmn:messageEventDefinition messageRef="Message_Processed" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sequenceFlow id="clo_f3" sourceRef="clo_processed" targetRef="email_account_opened" />
+      <bpmn:serviceTask id="email_account_opened" name="Send account opened">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="send-email" />
+          <zeebe:ioMapping>
+            <zeebe:input source="=&quot;account-opened&quot;" target="template" />
+            <zeebe:input source="=&quot;Votre compte est ouvert&quot;" target="subject_fr" />
+            <zeebe:input source="=&quot;Your account is open&quot;" target="subject_en" />
+          </zeebe:ioMapping>
+        </bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="clo_f4" sourceRef="email_account_opened" targetRef="clo_end" />
+      <bpmn:endEvent id="clo_end" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="f_clo" sourceRef="closing" targetRef="archive-case" />
+
+    <bpmn:subProcess id="archive-case" name="Archive">
+      <bpmn:startEvent id="arc_start" />
+      <bpmn:sequenceFlow id="arc_f1" sourceRef="arc_start" targetRef="arc_task" />
+      <bpmn:serviceTask id="arc_task" name="Archive case">
+        <bpmn:extensionElements><zeebe:taskDefinition type="archive-case" /></bpmn:extensionElements>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="arc_f2" sourceRef="arc_task" targetRef="arc_end" />
+      <bpmn:endEvent id="arc_end" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="f_arc" sourceRef="archive-case" targetRef="End" />
+    <bpmn:endEvent id="End" />
+  </bpmn:process>
+</bpmn:definitions>

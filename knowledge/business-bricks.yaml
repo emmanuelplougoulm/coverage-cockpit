@@ -1,0 +1,35 @@
+# Briques métier (§14) : premier match gagne ; le reste est « à classer ».
+bricks:
+  - { id: connexion, label: Connexion }
+  - { id: orientation, label: Orientation }
+  - { id: identite, label: Identité }
+  - { id: pieces, label: Pièces }
+  - { id: demandeur, label: Données demandeur }
+  - { id: signature, label: Signature }
+  - { id: decision, label: Décision }
+  - { id: relances, label: Relances }
+  - { id: restitution, label: Restitution }
+  - { id: cloture, label: Clôture }
+  - { id: initialisation, label: Initialisation }
+  - { id: transverse, label: Transverse }
+
+# Règles sur les groupes d'écrans du front (regex sur GROUP).
+front:
+  - { match: '^(LOGIN|AUTH|CONNEXION)', brick: connexion, confidence: haute }
+  - { match: '^(ONBOARDING|WELCOME|ORIENTATION)', brick: orientation, confidence: haute }
+  - { match: '^(SCAN_ID|IDENTITY|LIVENESS|ID_)', brick: identite, confidence: haute }
+  - { match: '^(DOCUMENTS|UPLOAD|PROOF)', brick: pieces, confidence: haute }
+  - { match: '^(APPLICANT|CUSTOMER|PERSONAL)', brick: demandeur, confidence: haute }
+  - { match: 'SIGN', brick: signature, confidence: haute }
+  - { match: '^(CLOSING|SUMMARY|END)', brick: restitution, confidence: moyenne, note: récapitulatif et contresignature mêlés }
+  - { match: '^JOURNEY$', brick: transverse, confidence: haute }
+
+# Règles au niveau d'un état (GROUP.KEY), prioritaires sur celles des groupes.
+states:
+  - { match: '^CLOSING_STEPS\.countersign$', brick: signature, confidence: haute, note: la contresignature réutilise la page de signature }
+
+# Règles sur les sous-processus BPMN (regex sur l'id ou le nom).
+subprocesses:
+  - { match: '^init', brick: initialisation, confidence: haute }
+  - { match: 'review|decision', brick: decision, confidence: haute }
+  - { match: '^archive', brick: cloture, confidence: haute }

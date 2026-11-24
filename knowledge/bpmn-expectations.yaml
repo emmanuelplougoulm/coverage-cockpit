@@ -1,0 +1,11 @@
+# Ce qu'un test doit vérifier pour chaque fait du BPMN (§14). `expect` = intentions
+# (control-patterns.yaml) ; vide = l'atteindre suffit. Premier match gagne.
+facts:
+  - { kind: email, name: '.*', expect: [email-content] }
+  - { kind: branch, name: 'Rejected|Refus', expect: [decision-recorded] }
+  - { kind: branch, name: 'More documents', expect: [decision-recorded] }
+  - { kind: branch, name: 'Fraud', expect: [] }
+  - { kind: branch, name: '.*', expect: [decision-recorded] }
+  - { kind: session, name: 'signature|Electronic signature', expect: [signed-document] }
+  - { kind: session, name: 'Identity', expect: [identity-status] }
+  - { kind: session, name: '.*', expect: [] }

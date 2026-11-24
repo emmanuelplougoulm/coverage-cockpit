@@ -1,0 +1,57 @@
+# CI de Coverage Cockpit : la même vérification que `pnpm verify`.
+# macOS : c'est la cible de l'app, et des tests utilisent zsh (runs détachés),
+# git (versions, branches) et sips (miniatures).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      # Aucune notification système, aucun vrai agent, aucun vrai Jira en CI.
+      CC_NOTIFY: 'off'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typage strict (UI + moteur)
+        run: pnpm typecheck
+
+      - name: Tests (Vitest)
+        run: pnpm test
+
+      - name: Build de l'interface
+        run: pnpm build
+
+      - name: Pilote — 0 différence avec la couverture figée
+        run: pnpm coverage
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Coque Tauri — tests Rust (run_engine, pseudo-terminal)
+        working-directory: src-tauri
+        run: cargo test --locked

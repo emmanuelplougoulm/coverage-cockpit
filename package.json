@@ -1,0 +1,47 @@
+{
+  "name": "coverage-cockpit",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@9.12.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:corpus": "tsx scripts/corpus-git.ts --quiet && CC_REPO_WORKFLOW=$PWD/.cc-corpus-git/workflow CC_REPO_FRONT=$PWD/fixtures/corpus/front CC_REPO_E2E=$PWD/fixtures/corpus/e2e CC_DATA_DIR=$PWD/.cc-data-corpus CC_JIRA_FAKE=$PWD/fixtures/corpus/jira CC_AGENT_CMD=\"node $PWD/fixtures/corpus/tools/fake-agent.mjs\" CC_NOTIFY=off CC_CASES_FAKE=1 VITE_PREVIEW_IMAGES=1 vite",
+    "build": "vue-tsc --noEmit -p tsconfig.app.json && vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "test": "vitest run",
+    "engine": "tsx src/engine/cli.ts",
+    "corpus": "tsx scripts/corpus-git.ts --quiet && CC_REPO_WORKFLOW=$PWD/.cc-corpus-git/workflow CC_REPO_FRONT=$PWD/fixtures/corpus/front CC_REPO_E2E=$PWD/fixtures/corpus/e2e CC_DATA_DIR=$PWD/.cc-data-corpus CC_JIRA_FAKE=$PWD/fixtures/corpus/jira CC_AGENT_CMD=\"node $PWD/fixtures/corpus/tools/fake-agent.mjs\" CC_NOTIFY=off CC_CASES_FAKE=1 tsx src/engine/cli.ts",
+    "tauri": "tauri",
+    "coverage": "CC_REPO_WORKFLOW=$PWD/fixtures/corpus/workflow CC_REPO_FRONT=$PWD/fixtures/corpus/front CC_REPO_E2E=$PWD/fixtures/corpus/e2e tsx scripts/coverage.ts",
+    "corpus:reset": "tsx scripts/corpus-git.ts --reset",
+    "catalog:learn": "CC_REPO_WORKFLOW=$PWD/fixtures/corpus/workflow CC_REPO_FRONT=$PWD/fixtures/corpus/front CC_REPO_E2E=$PWD/fixtures/corpus/e2e tsx scripts/catalog-learn.ts",
+    "onboard": "tsx scripts/onboard.ts",
+    "onboard:survey": "tsx scripts/onboard.ts --survey",
+    "corpus:onboard": "tsx scripts/corpus-git.ts --quiet && CC_REPO_WORKFLOW=$PWD/.cc-corpus-git/workflow CC_REPO_FRONT=$PWD/fixtures/corpus/front CC_REPO_E2E=$PWD/fixtures/corpus/e2e CC_DATA_DIR=$PWD/.cc-data-corpus tsx scripts/onboard.ts",
+    "verify": "pnpm typecheck && pnpm test && pnpm build && pnpm coverage && (cd src-tauri && cargo test --locked)"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "@xmldom/xmldom": "^0.9.12",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "bpmn-js": "^18.33.1",
+    "ts-morph": "^28.0.0",
+    "vue": "^3.5.46",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
+    "@types/node": "^26.6.6",
+    "@vitejs/plugin-vue": "^6.0.11",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1",
+    "vue-tsc": "^3.3.14"
+  }
+}
