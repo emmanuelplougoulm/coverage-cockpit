@@ -1,113 +1,156 @@
 # Coverage Cockpit
 
-Outil de bureau (macOS, mono-utilisateur) qui montre, parcours par parcours, quels écrans, e-mails et branches BPMN sont réellement parcourus ou vérifiés par un test automatisé.
+[![CI](https://github.com/emmanuelplougoulm/coverage-cockpit/actions/workflows/ci.yml/badge.svg)](https://github.com/emmanuelplougoulm/coverage-cockpit/actions/workflows/ci.yml)
 
-## Architecture
+Application de bureau macOS, mono-utilisateur, qui répond à une seule question :
 
-- `src/core` : types et fonctions pures (config de parcours, contrat JSON, fixture).
-- `src/engine` : moteur CLI. Chaque sous-commande imprime du JSON ; erreur = code ≠ 0 + stderr.
-- `src/journeys` : une config TypeScript par parcours ; `pilot.ts` sert de référence.
-- `src/ui` : Vue 3. Une seule frontière avec le moteur : `run_engine(args[]) → JSON`. `views/Overview.vue` (indicateurs, graphiques, actions), `views/JourneySpace.vue` (couverture par session, e-mails, processus, galerie, visionneuse).
-- `src/core/families.ts` : registre (§8) — cinq familles de scénarios, smoke par canal et par langue, règle de tags, demandes « Nouveau test ».
-- `src/engine/versions` : versions BPMN publiées (git), fetch + avance rapide sûre, diff de BPMN, tests impactés ; `src/engine/bpmnLayout.ts` : mise en page d'un BPMN sans DI pour l'afficher.
-- `knowledge/*.yaml` : connaissance versionnée — catalogue de décisions, briques métier, motifs de contrôle, attentes BPMN ; `src/engine/knowledge` (chargeur validant, catalogue appliqué, briques, audit des assertions).
-- `src/engine/tickets` : client Jira Data Center REST v2 en lecture seule (jeton du trousseau, reprise 429/503), déduction ticket → parcours.
-- `src/engine/agents` : runs d'agents détachés (CLI Claude Code), garde-fous, choix de branche, prompts ; `src/engine/captures.ts` : gains rapides sans IA ; `src/engine/cases` : cas de test ; `src/engine/onboard.ts` : brouillon de config + rapport ; `src-tauri/src/pty.rs` : terminal Claude intégré.
-- `src/core/indicators.ts` : indicateurs du §7 (couverture, vérification, illusion, gains rapides, effort, fragilité, écarts de langue, zone grise, tendances, depuis la dernière visite).
-- `src-tauri` : coque Tauri 2, une seule commande `run_engine` (shell de connexion, arguments via `"$@"`).
-- `src/engine/parsers` : `parseBpmn` (Zeebe + FEEL minimal), `parseFront` / `parseEmails`, `scanTests` (AST ts-morph, heuristique).
-- `src/engine/coverage` : calcul de couverture (§6) — résolution des coups et résolveurs d'ambiguïté, écrans × langues, e-mails, BPMN.
-- `src/engine/store` : dossier de données, empreintes (git ou disque), fichiers réellement lus, cache, historique JSONL, dernières vues.
-- `fixtures/corpus` : trois mini-dépôts anonymisés (workflow, front, e2e) qui servent de pilote ; chaque piège y est commenté.
-- `fixtures/pilot/expected-coverage.json` : couverture attendue du pilote, figée au jalon 3.
+> **Pour tel parcours client, quels écrans, quels e-mails et quelles branches du processus sont réellement parcourus ou vérifiés par un test automatisé, et lesquels ne le sont pas ?**
 
-## Vérification et CI
+Elle lit trois dépôts en lecture seule : le processus BPMN (Zeebe / Camunda 8), le package front du parcours et les tests Playwright. Elle en tire une couverture **écran × langue**, sépare ce qu'un test *traverse* de ce qu'il *vérifie* par une capture, et aide ensuite à combler les trous avec une IA. L'IA n'applique jamais rien sans un geste de l'utilisateur.
 
-```bash
-pnpm verify   # typage strict, tests, build, pilote = 0 différence avec la couverture figée, tests Rust
-```
+## Principes
 
-La CI (`.github/workflows/ci.yml`, macOS) fait exactement la même chose à chaque push sur `main` et chaque pull request. Elle tourne sur macOS parce que c'est la cible de l'app et que des tests utilisent `zsh`, `git` et `sips`. Aucun vrai agent, aucun vrai Jira, aucune notification en CI.
+- **Ce que le code dit est automatique, le périmètre est une décision humaine.** L'outil propose avec preuve (`fichier:ligne`) et niveau de confiance. Chaque choix de périmètre vit dans la config du parcours, avec sa raison.
+- **Honnêteté du calcul.** Ce que l'outil ne sait pas trancher (classe d'écran ambiguë, e-mail non attribué, branche sans lien, langue illisible) est compté à part, en **zone grise**, et jamais dans les pourcentages.
+- **Lecture seule sur les sources.** Seul le dépôt de tests peut être écrit, par l'IA ou par les gains rapides, sur une branche locale. Jamais la branche principale, jamais de push.
+- **Rien d'externe sans clic confirmé.** Jira est lu, jamais écrit. L'outil de cas de test n'est écrit que sur clic.
+- **Une seule frontière UI ↔ moteur : du JSON.** L'interface n'appelle que `run_engine(args[])`. Le moteur est un CLI qu'on peut rejouer à la main.
 
-## Données locales
+## État
 
-Dossier `~/Library/Application Support/app.coverage-cockpit` (surcharge : `CC_DATA_DIR` ; les scripts `corpus` utilisent `.cc-data-corpus/`) :
-`cache/<parcours>.json`, `history/<parcours>.<suite>.jsonl`, `last-views/<parcours>.json`, `aside/<parcours>.json` (écrans écartés), `smoke/<parcours>.json` (validations), `visit.json`.
+Les dix jalons du cahier des charges sont faits. Ils ont été vérifiés sur un **corpus anonymisé** (`fixtures/corpus`) qui sert de parcours pilote, dont la couverture attendue est figée : `pnpm coverage` doit montrer 0 différence.
 
-Cache : clé = parcours + empreinte de chaque dépôt + empreinte de l'outil (`src/core`, `src/engine`, `knowledge`, dépendances, et la seule config du parcours). Si elle change, une clé fine (contenu des fichiers réellement lus, listes des dossiers parcourus) évite encore l'analyse quand rien d'utile n'a bougé.
+Avant un usage réel, il reste à :
 
-## Dépôts analysés (lecture seule)
-
-| Variable | Défaut |
+| À brancher | Où |
 |---|---|
-| `CC_REPO_WORKFLOW` | `~/dev/repo-workflow` |
-| `CC_REPO_FRONT` | `~/dev/repo-front` |
-| `CC_REPO_E2E` | `~/dev/repo-e2e` |
+| Les trois dépôts réels et la config du premier parcours | `CC_REPO_*`, `src/journeys/` |
+| Jira : URL, jeton dans le trousseau, champs personnalisés | `CC_JIRA_*` |
+| La CLI Claude Code : **jamais exécutée en vrai**, seulement avec un faux agent | `CC_AGENT_CMD` |
+| L'API de l'outil de cas de test : endpoints inconnus, le client réel refuse toute écriture | `src/engine/cases/client.ts` |
 
-## Commandes
+## Démarrage rapide
+
+Prérequis : macOS, Node ≥ 22, pnpm 9 (`corepack enable`), Rust ≥ 1.86, git.
 
 ```bash
 pnpm install
-pnpm -s engine journeys   # moteur seul, JSON
-pnpm -s corpus scan pilot-account-opening   # même moteur, dépôts = corpus (aussi : bpmn, front)
-pnpm -s corpus coverage pilot-account-opening --suite ui   # vue + état du cache (--force pour réanalyser)
-pnpm -s corpus last-views                       # dernières vues enregistrées, sans analyse
-pnpm -s corpus thumbnails pilot-account-opening # miniatures des captures + doublons de rendu
-pnpm -s corpus sketches pilot-account-opening   # textes par état (croquis des écrans non capturés)
-pnpm -s corpus register pilot-account-opening   # registre par famille, smoke, problèmes de tags
-pnpm -s corpus aside-set pilot-account-opening SCAN_ID_STEPS.captureHelp "raison"   # écarter (--remove pour réintégrer)
-pnpm -s corpus smoke-validate pilot-account-opening "online|fr" "<titre complet du test>"
-pnpm -s corpus versions [--fetch]                # versions publiées, non publiées, branches ; --fetch = git fetch + avance rapide sûre
-pnpm -s corpus impacts pilot-account-opening --from 3.0.0 --to 3.2.0   # diff + tests impactés (direct / via le sous-processus)
-pnpm -s corpus bpmn-diff pilot-account-opening 3.2.0 local
-pnpm corpus:reset                                # recrée le dépôt workflow git du corpus (.cc-corpus-git/)
-pnpm -s corpus tickets                           # tickets (faux Jira du corpus : fixtures/corpus/jira)
-pnpm -s corpus campaign-ticket pilot-account-opening PILOT-501   # ticket de campagne (= branche)
-pnpm -s corpus assertions pilot-account-opening  # audit des assertions (suite workflow)
-pnpm catalog:learn                               # propose des décisions de catalogue ; --write pour les écrire
-pnpm -s corpus create-test pilot-account-opening "demande…"   # Nouveau test (conception), faux agent du corpus
-pnpm -s corpus generation-reply <run> "texte" --phase code     # passe au code (même session, même modèle)
-pnpm -s corpus captures pilot-account-opening    # gains rapides sans IA : aperçu ; apply-captures pour le commit local
-pnpm -s corpus spend                             # dépense IA
-pnpm onboard <processus> / pnpm onboard:survey   # brouillon de config + rapport / processus non configurés
-pnpm -s corpus history pilot-account-opening    # instantanés (une ligne par changement de couverture)
-pnpm coverage             # compare le pilote à sa fixture : 0 différence attendue (--write pour la réécrire)
-pnpm test                 # Vitest
-pnpm typecheck            # vue-tsc + tsc strict
-pnpm dev                  # UI en navigateur (relais /__engine de développement)
-pnpm dev:corpus           # idem, sur le corpus
-pnpm tauri dev            # app de bureau
-(cd src-tauri && cargo test)
+pnpm dev:corpus     # interface dans le navigateur, sur le corpus (http://localhost:1420)
+pnpm verify         # typage strict, tests, build, pilote = 0 différence, tests Rust
 ```
 
-Rust ≥ 1.86 : `rust-version` dans `Cargo.toml` fait choisir à cargo des versions de Tauri compatibles.
+`pnpm dev:corpus` branche tout sur le corpus : dépôts, faux Jira, faux agent IA, faux outil de cas de test. Les notifications sont coupées. Pour l'app de bureau (terminal Claude compris) :
 
-## Dépôt workflow du corpus
+```bash
+pnpm tauri dev
+```
 
-Les scripts `corpus` et `dev:corpus` lisent le workflow dans `.cc-corpus-git/workflow` (ignoré par git), un clone généré par `fixtures/corpus/tools/workflowHistory.ts` avec un distant (`origin.git`) : versions 3.0.0 → 3.2.0 en local, 3.3.0 et un commit non publié seulement sur le distant, une branche non fusionnée. « Rafraîchir » fait avancer ce clone ; `pnpm corpus:reset` le remet à la 3.2.0. `pnpm coverage` (fixture figée) lit toujours `fixtures/corpus/workflow`.
+## Ce que montre l'app
 
-**Mise à jour du dépôt workflow** : `git fetch` (30 s au plus), puis `merge --ff-only` seulement si le clone est propre, sur sa branche principale, sans commit local (équivalent au rebase dans ce seul cas ; sinon rien, avec la raison). Aucun push, aucune autre écriture.
+**Vue d'ensemble.** Indicateurs clés, à savoir couverture, vérification, *illusion* (cellules atteintes jamais capturées), gains rapides et zone grise. Elle montre aussi l'entonnoir de couverture, l'effort, l'histogramme des tests par cellule, la courbe de gain et l'évolution avec classement. Elle propose des actions et résume ce qui a bougé depuis la dernière visite. Au lancement, la dernière vue connue s'affiche tout de suite, marquée « mise à jour… » pendant la vérification.
 
-## Jira (lecture seule)
+**Espace d'un parcours** (suite UI ou workflow) :
 
-`CC_JIRA_URL` + jeton d'accès personnel dans le trousseau macOS (service `coverage-cockpit-jira`, ou `CC_JIRA_KEYCHAIN_SERVICE`) ; champs : `CC_JIRA_FIELD_BPMN`, `_TAXONOMY`, `_EPIC`, `_SPRINT`. Aucune écriture vers Jira. Le jeton n'est ni affiché ni journalisé ; reprise sur 429/503 (Retry-After, sinon 1 s, 2 s, 4 s). `CC_JIRA_FAKE=<dossier>` sert des réponses enregistrées (corpus).
+| Onglet | Contenu |
+|---|---|
+| Couverture | Registre des scénarios en cinq familles (chemin nominal, escalades, branches alternatives, e-mails, erreurs techniques), bandeau smoke, vue par session, gains rapides sans IA |
+| Galerie | Captures de référence et croquis des écrans non capturés, visionneuse zoomable |
+| Suivi | Ticket de campagne, validation du smoke, cas de test, écrans écartés, décisions à trancher, à nettoyer |
+| Assertions | Audit de la suite workflow : contrôles vs gardes, couches, intentions, faits du BPMN contrôlés |
+| BPMN | Diagramme coloré par statut, liste des éléments |
+| Versions | Diff entre deux versions du BPMN et tests impactés (directement / via le sous-processus) |
+| Nouveau test | Conception des cas puis code par l'IA, sur une branche choisie ; demandes en lecture seule |
+| Onboarding | Brouillon de config, rapport des points à trancher, enquête de l'IA |
 
-## Agents IA
+**Mes tickets** : tickets Jira assignés, regroupés par sprint, avec le parcours déduit et les indices divergents. **Versions BPMN** : versions publiées, `fetch` et mise à jour sûre du dépôt workflow, versions non vues. **Claude** : terminal intégré, que ⌘J réduit en panneau sous la vue.
 
-Chaque échange est un processus détaché de la CLI Claude Code (`claude -p --output-format stream-json`), session reprise à chaque réponse avec le modèle épinglé au départ (`CC_AGENT_MODEL`, défaut claude-sonnet-5-5 ; onboarding `CC_AGENT_MODEL_STRONG`, défaut claude-opus-5-5). Commande : `CC_AGENT_CMD` (défaut `claude`). Journaux, erreurs, code de sortie par tour dans `runs/<type>/<id>/`. Garde-fous : outils refusés (push, branche principale, secrets, images, écriture front/workflow) + consigne ; branches et commits seulement si le dossier de tests est la racine de son propre dépôt git. Notifications macOS en fin de run (`CC_NOTIFY=off` pour les couper). Les scripts `corpus` utilisent un faux agent (`fixtures/corpus/tools/fake-agent.mjs`) et un faux outil de cas de test (`CC_CASES_FAKE=1`).
+## Brancher ses dépôts
 
-## Images de test
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `CC_REPO_WORKFLOW` | dépôt des processus BPMN | `~/dev/repo-workflow` |
+| `CC_REPO_FRONT` | dépôt des packages front | `~/dev/repo-front` |
+| `CC_REPO_E2E` | dépôt des tests Playwright | `~/dev/repo-e2e` |
+| `CC_DATA_DIR` | dossier de données de l'app | `~/Library/Application Support/app.coverage-cockpit` |
+| `CC_JIRA_URL` | Jira Data Center (lecture seule) | non configuré |
+| `CC_JIRA_KEYCHAIN_SERVICE` | service du jeton dans le trousseau macOS | `coverage-cockpit-jira` |
+| `CC_JIRA_FIELD_BPMN`, `_TAXONOMY`, `_EPIC`, `_SPRINT` | identifiants des champs personnalisés | — |
+| `CC_AGENT_CMD` | commande de l'agent | `claude` |
+| `CC_AGENT_MODEL` / `CC_AGENT_MODEL_STRONG` | modèle d'écriture / d'onboarding | `claude-sonnet-5-5` / `claude-opus-5-5` |
+| `CC_NOTIFY` | `off` coupe les notifications macOS | actives |
 
-Les images de référence (`<spec>-snapshots/*.png`) peuvent montrer des pièces justificatives : l'interface ne les affiche **jamais en aperçu de développement** dans un navigateur, sauf `VITE_PREVIEW_IMAGES=1` (posé seulement par `pnpm dev:corpus`, dont les images sont des maquettes générées par `fixtures/corpus/tools/make-images.py`). Dans l'app Tauri, elles s'affichent. Miniatures : `sips` (macOS), en cache dans le dossier de données.
+Le jeton Jira se range dans le trousseau, et l'outil ne l'affiche ni ne le journalise jamais :
 
-## Limites connues du calcul
+```bash
+security add-generic-password -s coverage-cockpit-jira -a "$USER" -w
+```
 
-- Une capture sans page objet prend la dernière page utilisée.
-- La variante d'un e-mail se tranche par `emailCaptureVariants`, la gamme (variable de la règle de dossier), ou un indice exact (suffixe, valeur du cas) ; sinon zone grise.
-- Les images de référence des captures (`capturedBy[].image`) arrivent avec la galerie.
+**Ajouter un parcours** : `pnpm onboard <id-du-processus>` écrit un brouillon de config et un rapport des points à trancher dans le dossier de données, jamais dans un dépôt. `pnpm onboard:survey` liste les processus pas encore configurés. La config validée va dans `src/journeys/<parcours>.ts`, et s'enregistre dans `src/journeys/index.ts` (`journeys` et `journeyFiles`). Le parcours pilote, `src/journeys/pilot.ts`, sert de modèle commenté.
 
-## Limites connues des parseurs
+## Architecture
 
-- FEEL : pas de noms à espaces (« string length »), pas de listes ni de fonctions évaluées.
-- Front : anciens packages à `config-*.ts` non lus ; `screenSketch` et `stepGraph` arrivent avec leurs vues.
-- Scanner : `this.x` n'est lu que par initialiseur de propriété (pas par argument de `super(...)`) ; `forEach` piloté par données non déplié ; une méthode est « sonde » seulement si toutes ses instructions finissent par une sonde.
+```
+src/core        types et fonctions pures (contrat JSON, indicateurs, registre, FEEL)
+src/engine      moteur CLI : chaque sous-commande imprime du JSON ; erreur = code ≠ 0 + stderr
+  parsers       BPMN (Zeebe + FEEL minimal), front, specs (AST ts-morph, marche interprocédurale)
+  coverage      résolution des écrans, résolveurs d'ambiguïté, écrans × langues, e-mails, BPMN
+  store         dossier de données, empreintes, cache, historique JSONL, décisions locales
+  versions      versions publiées (git), fetch sûr, diff de BPMN, tests impactés
+  knowledge     catalogue de décisions, briques métier, audit des assertions
+  tickets       client Jira REST v2 en lecture seule, déduction ticket → parcours
+  agents        runs détachés de la CLI Claude Code, garde-fous, branches, prompts
+  cases         cas de test (brouillon, création sur clic, clé dans le test)
+src/journeys    une config TypeScript par parcours
+src/ui          Vue 3 + TypeScript strict
+src-tauri       coque Tauri 2 : run_engine + pseudo-terminal
+knowledge       connaissance versionnée en YAML
+fixtures        corpus anonymisé + couverture figée du pilote
+```
+
+### Le moteur en ligne de commande
+
+Toutes les vues de l'app viennent du moteur, qu'on peut appeler directement. `pnpm -s engine <commande>` utilise les vrais dépôts, `pnpm -s corpus <commande>` le corpus :
+
+| Famille | Sous-commandes |
+|---|---|
+| Lecture | `journeys`, `coverage <id> [--suite ui\|workflow] [--force]`, `last-views`, `history`, `register`, `thumbnails`, `image`, `sketches`, `assertions`, `aside`, `seen` |
+| Sources | `bpmn`, `front`, `scan` |
+| Versions | `versions [--fetch]`, `bpmn-diff <id> <de> <à>`, `impacts <id> [--from] [--to]`, `bpmn-xml`, `seen-set` |
+| Tickets | `tickets`, `campaign-tickets`, `campaign-ticket <id> <CLÉ>` |
+| Décisions locales | `aside-set`, `smoke-validate`, `visit` |
+| Gains rapides | `captures <id>`, `apply-captures <id>` |
+| Agents | `create-test`, `generation-reply`, `generation-stop`, `ask`, `onboard`, `aio-case-draft`, `sdk-analyse`, `run`, `active-runs`, `recent-runs`, `spend`, `branch-choice`, `notify` |
+| Cas de test | `aio-cases`, `aio-case-push`, `aio-case-key`, `aio-case-set`, `aio-link` |
+
+Scripts annexes : `pnpm coverage` (compare au pilote figé), `pnpm catalog:learn` (propose des décisions de catalogue ; `--write` pour les écrire), `pnpm corpus:reset`.
+
+## Garde-fous
+
+- **Agents IA.** Un processus détaché de la CLI Claude Code par tour. La session est reprise à chaque réponse avec le **modèle épinglé au départ**. Journaux, erreurs et coût sont écrits par tour, et une notification macOS signale la fin d'un run. Les outils suivants sont refusés : push, bascule ou reset sur la branche principale, lecture des fichiers d'environnement, certificats, images et pièces de test, écriture dans les dépôts front et workflow. Les branches et commits ne sont possibles que si le dossier de tests est la racine de **son propre** dépôt git. Une branche n'est jamais changée si le dépôt a des modifications non commitées : l'agent en est averti.
+- **Dépôt workflow.** `git fetch` (30 s au plus), puis avance rapide (`merge --ff-only`) seulement si le clone est propre, sur sa branche principale et sans commit local. Sinon rien n'est fait, et la raison s'affiche.
+- **Images de test.** Elles peuvent montrer des pièces justificatives, donc elles ne s'affichent jamais dans un aperçu navigateur, sauf sur le corpus, dont les images sont des maquettes générées. Elles s'affichent dans l'app de bureau.
+- **Écritures externes.** L'outil n'écrit jamais dans Jira. Dans l'outil de cas de test, chaque écriture demande un clic confirmé, et un cas déjà lié n'est jamais réécrit.
+
+## Corpus et pilote figé
+
+`fixtures/corpus` contient trois mini-dépôts fictifs (workflow, front, e2e) qui imitent la forme des vrais, avec des pièges commentés : sessions au nom calculé, écrans partagés entre deux sessions, sondes, langues illisibles, objets d'e-mail à variantes, branches sans preuve visible. On y trouve aussi un faux Jira, un faux agent IA, et un générateur d'historique git du workflow (versions publiées, distant en avance, branche non fusionnée) créé dans `.cc-corpus-git/`. La couverture attendue du pilote est figée dans `fixtures/pilot/expected-coverage.json` ; toute différence est une régression ou un changement à valider.
+
+## Données locales et cache
+
+Le dossier de données contient le cache par parcours, l'historique JSONL par parcours et par suite, les dernières vues, les décisions locales (écrans écartés, smoke validé, version vue, ticket de campagne), les runs d'agents et les miniatures.
+
+La clé de cache combine le parcours, l'empreinte de chaque dépôt (objets git, diff et fichiers non suivis) et l'empreinte de l'outil, restreinte au moteur, à la connaissance et à la seule config du parcours. Quand cette clé change, une seconde clé, calculée sur les fichiers réellement lus, évite encore l'analyse si rien d'utile n'a bougé.
+
+## Limites connues
+
+- **L'analyse est statique et heuristique** : tant qu'un test n'est pas exécuté, on ne sait pas exactement ce qu'il traverse. Une seconde source, les artefacts d'exécution (traces, rapports), reste à ajouter.
+- **FEEL** : pas de noms à espaces (« string length »), pas de listes ni de fonctions évaluées.
+- **Scanner** : `this.x` n'est lu que par initialiseur de propriété ; un `forEach` piloté par données n'est pas déplié.
+- **Front** : les anciens packages en `config-*.ts` ne sont pas lus.
+- **Mise en page des BPMN sans DI** : générée par l'outil, une flèche qui saute une colonne peut traverser une forme.
+- **Cas de test** : un seul cas par test (un test à deux clés n'est géré qu'à moitié), et la suppression d'un cas se fait à la main.
+- **Pas fait** : création d'étape et réduction de doublons par l'IA, modification du dernier commit local, apprentissage automatique du catalogue en fin d'onboarding, sauvegarde de l'historique (une seule machine).
+
+## Vérification et CI
+
+`pnpm verify` et la CI (`.github/workflows/ci.yml`) lancent la même chose : typage strict, tests Vitest, build, comparaison au pilote figé, tests Rust de la coque. La CI tourne sur macOS, cible de l'app, car des tests utilisent `zsh`, `git` et `sips`. Aucun vrai agent, aucun vrai Jira, aucune notification en CI.
